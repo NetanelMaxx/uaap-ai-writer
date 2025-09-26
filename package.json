@@ -1,0 +1,18 @@
+{
+  "name": "uaap-ai-writer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@sanity/client": "^7.11.2",
+    "vercel": "^48.1.6"
+  }
+}
