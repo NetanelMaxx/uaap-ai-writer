@@ -1,10 +1,10 @@
 // api/generateArticle.js
 
 import { createClient } from "@sanity/client";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+// NEW: Import the Vertex AI library
+import { VertexAI } from "@google-cloud/vertexai";
 
 // --- CONFIGURATION ---
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const SANITY_PROJECT_ID = process.env.SANITY_PROJECT_ID;
 const SANITY_DATASET = process.env.SANITY_DATASET;
 const SANITY_API_TOKEN = process.env.SANITY_API_TOKEN;
@@ -18,8 +18,23 @@ const sanityClient = createClient({
   apiVersion: '2024-02-01',
 });
 
-// Initialize Gemini client
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+// NEW: Initialize Vertex AI client with specific region
+const vertexAI = new VertexAI({
+  project: process.env.SANITY_PROJECT_ID, // Your Google Cloud Project ID
+  location: 'asia-southeast1', // Explicitly choose a region in Asia
+});
+
+// NEW: Define the model using the Vertex AI naming convention
+const model = 'gemini-1.5-pro-001';
+
+const generativeModel = vertexAI.getGenerativeModel({
+    model: model,
+    generationConfig: {
+      maxOutputTokens: 8192,
+      temperature: 1,
+      topP: 0.95,
+    },
+});
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -44,13 +59,6 @@ export default async function handler(req, res) {
       - Name: ${gameData.topPerformer.name || 'N/A'}
       - Stats: ${gameData.topPerformer.points} points, ${gameData.topPerformer.rebounds} rebounds, ${gameData.topPerformer.assists} assists.
 
-      **Key Game Highlights (if any):**
-      ${gameData.highlights ? `- ${gameData.highlights.join('\n- ')}` : 'No specific highlights provided.'}
-
-      **Article Requirements:**
-      1. Create a catchy, dynamic headline.
-      2. The body of the article should be a well-written narrative of 250-350 words, incorporating the game result and the star player's performance.
-
       **Output Format:**
       Return ONLY a valid JSON object like this, with no other text before or after it:
       {
@@ -59,13 +67,16 @@ export default async function handler(req, res) {
       }
     `;
 
-    // --- Call Gemini with the stable model name ---
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-
-    const articleJSON = JSON.parse(text);
+    // NEW: Call the model using the Vertex AI method
+    const request = {
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    };
+    const resp = await generativeModel.generateContent(request);
+    const text = resp.response.candidates[0].content.parts[0].text;
+    
+    // Clean the response from markdown/json tags
+    const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const articleJSON = JSON.parse(cleanedText);
 
     // --- Create article in Sanity ---
     const newArticle = {
@@ -75,25 +86,21 @@ export default async function handler(req, res) {
         _type: "slug",
         current: articleJSON.headline.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 90),
       },
-      content: [
-        {
-          _type: "block",
-          style: "normal",
-          children: [{ _type: "span", text: articleJSON.body }],
-        },
-      ],
+      content: [{ _type: "block", style: "normal", children: [{ _type: "span", text: articleJSON.body }] }],
       status: "review",
     };
 
     const createdArticle = await sanityClient.create(newArticle);
     console.log("Successfully created article:", createdArticle._id);
 
-    return res
-      .status(200)
-      .json({ message: "Article generated successfully!", articleId: createdArticle._id });
+    return res.status(200).json({ message: "Article generated successfully!", articleId: createdArticle._id });
 
   } catch (error) {
     console.error("Error generating article:", error);
+    // Add more detailed error logging
+    if (error.response) {
+      console.error("Error response data:", error.response.data);
+    }
     return res.status(500).json({ message: "Error generating article", error: error.message });
   }
 }
