@@ -1,24 +1,26 @@
 // api/generateArticle.js
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@sanity/client";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // --- CONFIGURATION ---
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const SANITY_PROJECT_ID = process.env.SANITY_PROJECT_ID;
 const SANITY_DATASET = process.env.SANITY_DATASET;
-const SANITY_API_TOKEN = process.env.SANITY_API_TOKEN; // Must have write access
+const SANITY_API_TOKEN = process.env.SANITY_API_TOKEN;
 
-// Initialize clients
-const genAI = new GoogleGenerativeAI({ apiKey: GEMINI_API_KEY });
+// Initialize Sanity client
 const sanityClient = createClient({
   projectId: SANITY_PROJECT_ID,
   dataset: SANITY_DATASET,
   token: SANITY_API_TOKEN,
-  useCdn: false, // false because we write data
+  useCdn: false, // Must be false to write data
+  apiVersion: '2024-02-01', // Use a recent API version
 });
 
-// --- MAIN FUNCTION ---
+// Initialize Gemini client (CORRECTED)
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ message: "Method Not Allowed" });
@@ -28,54 +30,51 @@ export default async function handler(req, res) {
     const gameData = req.body;
     console.log("Received game data:", gameData);
 
-    // --- CRAFT PROMPT ---
+    // --- IMPROVED PROMPT ---
     const prompt = `
-You are an expert UAAP sports journalist. Generate a compelling article based only on the data below. Do not invent facts.
+      You are an expert UAAP sports journalist writing a game recap for a university sports website. Your tone should be engaging, exciting, and professional.
+      Generate a compelling news article based *only* on the following structured data.
 
-**Game Info:**
-- Winning Team: ${gameData.winningTeam}
-- Winning Score: ${gameData.winningScore}
-- Losing Team: ${gameData.losingTeam}
-- Losing Score: ${gameData.losingScore}
+      **Game Information:**
+      - Winning Team: ${gameData.winningTeam}
+      - Winning Score: ${gameData.winningScore}
+      - Losing Team: ${gameData.losingTeam}
+      - Losing Score: ${gameData.losingScore}
 
-**Top Player:**
-- Name: ${gameData.topPerformer.name}
-- Stats: ${gameData.topPerformer.points} points, ${gameData.topPerformer.rebounds} rebounds, ${gameData.topPerformer.assists} assists
+      **Star Player of the Game:**
+      - Name: ${gameData.topPerformer.name || 'N/A'}
+      - Stats: ${gameData.topPerformer.points} points, ${gameData.topPerformer.rebounds} rebounds, ${gameData.topPerformer.assists} assists.
 
-**Highlights:**
-${gameData.highlights ? `- ${gameData.highlights.join("\n- ")}` : "No specific highlights provided."}
+      **Key Game Highlights (if any):**
+      ${gameData.highlights ? `- ${gameData.highlights.join('\n- ')}` : 'No specific highlights provided.'}
 
-**Requirements:**
-1. Catchy headline.
-2. First paragraph: game outcome & final score.
-3. Second paragraph: top player performance.
-4. Third paragraph: key highlights (if any).
-5. Fourth paragraph: meaning of win/loss for teams.
-6. Article length: 250–350 words.
+      **Article Requirements:**
+      1. Create a catchy, dynamic headline.
+      2. The body of the article should be a well-written narrative of 250-350 words, incorporating the game result and the star player's performance.
 
-Output JSON:
-{
-  "headline": "...",
-  "body": "..."
-}
-`;
+      **Output Format:**
+      Return ONLY a valid JSON object like this, with no other text before or after it:
+      {
+        "headline": "Your generated headline here",
+        "body": "Your full generated article text here."
+      }
+    `;
 
-    // --- CALL GENERATIVE AI ---
-    const model = genAI.getGenerativeModel({ model: "text-bison-001" });
+    // --- Call Gemini with the correct model name ---
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" }); // CORRECTED MODEL
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
 
-    // Parse JSON from AI
     const articleJSON = JSON.parse(text);
 
-    // --- CREATE SANITY DRAFT ---
+    // --- Create article in Sanity ---
     const newArticle = {
       _type: "article",
       title: articleJSON.headline,
       slug: {
         _type: "slug",
-        current: articleJSON.headline.toLowerCase().replace(/\s+/g, "-").slice(0, 90),
+        current: articleJSON.headline.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 90),
       },
       content: [
         {
@@ -88,11 +87,14 @@ Output JSON:
     };
 
     const createdArticle = await sanityClient.create(newArticle);
-    console.log("Article created:", createdArticle._id);
+    console.log("Successfully created article:", createdArticle._id);
 
-    res.status(200).json({ message: "Article generated!", articleId: createdArticle._id });
+    return res
+      .status(200)
+      .json({ message: "Article generated successfully!", articleId: createdArticle._id });
+
   } catch (error) {
     console.error("Error generating article:", error);
-    res.status(500).json({ message: "Internal error", error: error.message });
+    return res.status(500).json({ message: "Error generating article", error: error.message });
   }
 }
