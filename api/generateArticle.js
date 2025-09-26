@@ -46,7 +46,7 @@ Output JSON:
     `;
 
     // --- Call Gemini ---
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1" });
     const result = await model.generateContent(prompt);
     const responseText = await result.response.text();
 
