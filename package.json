@@ -11,7 +11,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
+    "@google-cloud/vertexai": "^1.10.0",
     "@sanity/client": "^7.11.2",
     "vercel": "^48.1.6"
   }
