@@ -11,8 +11,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@google-cloud/vertexai": "^1.10.0",
     "@sanity/client": "^7.11.2",
+    "openai": "^5.23.0",
     "vercel": "^48.1.6"
   }
 }
