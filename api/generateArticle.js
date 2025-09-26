@@ -14,11 +14,11 @@ const sanityClient = createClient({
   projectId: SANITY_PROJECT_ID,
   dataset: SANITY_DATASET,
   token: SANITY_API_TOKEN,
-  useCdn: false, // Must be false to write data
-  apiVersion: '2024-02-01', // Use a recent API version
+  useCdn: false,
+  apiVersion: '2024-02-01',
 });
 
-// Initialize Gemini client (CORRECTED)
+// Initialize Gemini client
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 export default async function handler(req, res) {
@@ -30,7 +30,6 @@ export default async function handler(req, res) {
     const gameData = req.body;
     console.log("Received game data:", gameData);
 
-    // --- IMPROVED PROMPT ---
     const prompt = `
       You are an expert UAAP sports journalist writing a game recap for a university sports website. Your tone should be engaging, exciting, and professional.
       Generate a compelling news article based *only* on the following structured data.
@@ -60,8 +59,8 @@ export default async function handler(req, res) {
       }
     `;
 
-    // --- Call Gemini with the correct model name ---
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" }); // CORRECTED MODEL
+    // --- Call Gemini with the stable model name ---
+    const model = genAI.getGenerativeModel({ model: "gemini-1.0-pro" }); // FINAL FIX
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
