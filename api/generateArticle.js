@@ -1,11 +1,11 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import sanityClient from "@sanity/client";
+import { createClient } from "@sanity/client";
 
-// 1. Setup Google Gemini client
+// --- Initialize Google Gemini client ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// 2. Setup Sanity client
-const client = sanityClient({
+// --- Initialize Sanity client ---
+const client = createClient({
   projectId: process.env.SANITY_PROJECT_ID,
   dataset: process.env.SANITY_DATASET,
   token: process.env.SANITY_API_TOKEN,
@@ -13,44 +13,79 @@ const client = sanityClient({
   apiVersion: "2025-01-01", // pick a recent date
 });
 
-// 3. API Route (ESM style export)
+// --- Main API handler ---
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Only POST requests allowed" });
   }
 
   try {
-    const { gameResult } = req.body;
+    const gameData = req.body;
 
-    if (!gameResult) {
+    if (!gameData) {
       return res.status(400).json({ error: "Missing gameResult data" });
     }
 
-    // Generate article text from Gemini
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    // --- Craft the prompt for Gemini ---
     const prompt = `
-      Write a sports news article about this UAAP Basketball game result:
-      ${JSON.stringify(gameResult, null, 2)}
+You are a UAAP sports journalist. Generate a news article based on the following game data (no invented facts):
+
+${JSON.stringify(gameData, null, 2)}
+
+Requirements:
+1. Catchy headline.
+2. First paragraph: summary of final score and winning team.
+3. Second paragraph: focus on top performer with stats.
+4. Include highlights if any.
+5. Final paragraph: what this win means for both teams.
+Output JSON:
+{
+  "headline": "Your headline",
+  "body": "Full article text"
+}
     `;
 
+    // --- Call Gemini ---
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
     const result = await model.generateContent(prompt);
-    const articleText = result.response.text();
+    const responseText = await result.response.text();
 
-    // Save into Sanity as "article"
-    const article = await client.create({
+    // --- Parse Gemini JSON output ---
+    const articleJSON = JSON.parse(responseText);
+
+    // --- Create the article in Sanity ---
+    const newArticle = {
       _type: "article",
-      title: `Game Recap: ${gameResult.teamA} vs ${gameResult.teamB}`,
-      content: articleText,
+      title: articleJSON.headline,
+      slug: {
+        _type: "slug",
+        current: articleJSON.headline.toLowerCase().replace(/\s+/g, "-").slice(0, 90),
+      },
+      content: [
+        {
+          _type: "block",
+          style: "normal",
+          children: [
+            {
+              _type: "span",
+              text: articleJSON.body,
+            },
+          ],
+        },
+      ],
+      status: "review",
       relatedGame: {
         _type: "reference",
-        _ref: gameResult._id,
+        _ref: gameData._id || "temp-id",
       },
       publishedAt: new Date().toISOString(),
-    });
+    };
 
-    return res.status(200).json({ success: true, article });
+    const createdArticle = await client.create(newArticle);
+
+    return res.status(200).json({ success: true, article: createdArticle });
   } catch (error) {
     console.error("Error generating article:", error);
-    return res.status(500).json({ error: "Failed to generate article" });
+    return res.status(500).json({ error: error.message });
   }
 }
